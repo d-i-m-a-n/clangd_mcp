@@ -1,0 +1,433 @@
+// Package mcp registers MCP tools backed by the LSP proxy.
+//
+// Tools (names mirror LSP method names, "/" replaced with "_"):
+//   - workspace_symbol      — search symbols by query string
+//   - textDocument_references — find all references at a position
+//   - textDocument_rename   — rename a symbol and apply edits to disk
+package mcp
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+
+	"clangd-mcp/lsp"
+)
+
+// LSPClient is the interface the MCP tools use to communicate with the LSP server.
+// *proxy.Proxy implements this interface.
+type LSPClient interface {
+	SendRequest(method string, params json.RawMessage) (json.RawMessage, error)
+	SendNotification(method string, params json.RawMessage) error
+	Workspace() string
+}
+
+// RegisterTools adds all tools to an MCPServer.
+func RegisterTools(s *server.MCPServer, p LSPClient) {
+	s.AddTool(
+		mcp.NewTool("workspace_symbol",
+			mcp.WithDescription("Search for symbols in the workspace by name or partial name (workspace/symbol)."),
+			mcp.WithString("query",
+				mcp.Required(),
+				mcp.Description("Symbol name or partial name to search for (e.g. 'Plugin' or 'Potap::Plugin').")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := workspaceSymbolTool(p, stringArg(req, "query"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_references",
+			mcp.WithDescription("Find all references to the symbol at a given position (textDocument/references)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentReferencesTool(p,
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_rename",
+			mcp.WithDescription("Rename the symbol at a given position across the whole workspace and apply edits to disk (textDocument/rename)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithString("newName", mcp.Required(), mcp.Description("New name for the symbol.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentRenameTool(p,
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+				stringArg(req, "newName"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+}
+
+// NewSSEServer creates an SSE-based MCP server and registers all tools.
+func NewSSEServer(p LSPClient, port int) *server.SSEServer {
+	s := server.NewMCPServer("clangd-mcp", "1.0.0")
+	RegisterTools(s, p)
+	baseURL := fmt.Sprintf("http://localhost:%d", port)
+	return server.NewSSEServer(s, server.WithBaseURL(baseURL))
+}
+
+// ─── Tool implementations ─────────────────────────────────────────────────────
+
+func workspaceSymbolTool(p LSPClient, query string) (string, error) {
+	// Strip namespace prefix for a broader search, keep original for filtering.
+	searchTerm := query
+	if i := strings.LastIndex(query, "::"); i >= 0 {
+		searchTerm = query[i+2:]
+	}
+
+	params, _ := json.Marshal(map[string]string{"query": searchTerm})
+	raw, err := p.SendRequest("workspace/symbol", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return fmt.Sprintf("No symbols found for %q.", query), nil
+	}
+
+	symbols, err := parseSymbols(raw)
+	if err != nil {
+		return "", err
+	}
+	if len(symbols) == 0 {
+		return fmt.Sprintf("No symbols found for %q.", query), nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Symbols matching %q (%d):\n", query, len(symbols))
+	for _, sym := range symbols {
+		path := uriToPath(sym.Location.URI)
+		rel := relativePath(p.Workspace(), path)
+		fmt.Fprintf(&sb, "  [%s] %s  %s:%d:%d\n",
+			symbolKindName(sym.Kind),
+			sym.Name,
+			rel,
+			sym.Location.Range.Start.Line+1,
+			sym.Location.Range.Start.Character+1,
+		)
+	}
+	return sb.String(), nil
+}
+
+func textDocumentReferencesTool(p LSPClient, filePath string, line, col int) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		"position":     map[string]int{"line": line - 1, "character": col - 1},
+		"context":      map[string]bool{"includeDeclaration": true},
+	})
+	raw, err := p.SendRequest("textDocument/references", params)
+	if err != nil {
+		return "", err
+	}
+	locs, err := parseLocations(raw)
+	if err != nil {
+		return "", err
+	}
+	return formatLocations(p.Workspace(), locs), nil
+}
+
+func textDocumentRenameTool(p LSPClient, filePath string, line, col int, newName string) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		"position":     map[string]int{"line": line - 1, "character": col - 1},
+		"newName":      newName,
+	})
+	raw, err := p.SendRequest("textDocument/rename", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No rename edits returned (symbol may not be renameable at this position).", nil
+	}
+
+	edits, err := parseWorkspaceEdit(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse WorkspaceEdit: %w", err)
+	}
+	if len(edits) == 0 {
+		return "No edits to apply.", nil
+	}
+
+	return applyWorkspaceEdits(edits)
+}
+
+// ─── WorkspaceEdit application ────────────────────────────────────────────────
+
+type fileEdits struct {
+	path  string
+	edits []lsp.TextEdit
+}
+
+// parseWorkspaceEdit extracts per-file TextEdits from a WorkspaceEdit response.
+func parseWorkspaceEdit(raw json.RawMessage) ([]fileEdits, error) {
+	var we struct {
+		Changes         map[string][]lsp.TextEdit `json:"changes"`
+		DocumentChanges []json.RawMessage          `json:"documentChanges"`
+	}
+	if err := json.Unmarshal(raw, &we); err != nil {
+		return nil, err
+	}
+
+	result := make([]fileEdits, 0)
+
+	// Prefer documentChanges (versioned).
+	if len(we.DocumentChanges) > 0 {
+		for _, dc := range we.DocumentChanges {
+			var tde struct {
+				TextDocument struct {
+					URI string `json:"uri"`
+				} `json:"textDocument"`
+				Edits []lsp.TextEdit `json:"edits"`
+			}
+			if err := json.Unmarshal(dc, &tde); err != nil {
+				continue // may be a CreateFile/RenameFile/DeleteFile — skip for now
+			}
+			if tde.TextDocument.URI == "" {
+				continue
+			}
+			result = append(result, fileEdits{
+				path:  uriToPath(tde.TextDocument.URI),
+				edits: tde.Edits,
+			})
+		}
+		if len(result) > 0 {
+			return result, nil
+		}
+	}
+
+	// Fall back to changes map.
+	for uri, edits := range we.Changes {
+		result = append(result, fileEdits{path: uriToPath(uri), edits: edits})
+	}
+	// Stable order.
+	sort.Slice(result, func(i, j int) bool { return result[i].path < result[j].path })
+	return result, nil
+}
+
+// applyWorkspaceEdits writes all edits to disk and returns a summary.
+func applyWorkspaceEdits(all []fileEdits) (string, error) {
+	var sb strings.Builder
+	totalEdits := 0
+
+	for _, fe := range all {
+		data, err := os.ReadFile(fe.path)
+		if err != nil {
+			return "", fmt.Errorf("read %s: %w", fe.path, err)
+		}
+		lines := splitLines(string(data))
+		// Apply edits in reverse order so earlier offsets stay valid.
+		edits := fe.edits
+		sort.Slice(edits, func(i, j int) bool {
+			if edits[i].Range.Start.Line != edits[j].Range.Start.Line {
+				return edits[i].Range.Start.Line > edits[j].Range.Start.Line
+			}
+			return edits[i].Range.Start.Character > edits[j].Range.Start.Character
+		})
+		for _, e := range edits {
+			lines = applyTextEdit(lines, e)
+		}
+		if err := os.WriteFile(fe.path, []byte(strings.Join(lines, "")), 0644); err != nil {
+			return "", fmt.Errorf("write %s: %w", fe.path, err)
+		}
+		fmt.Fprintf(&sb, "  %s (%d edit(s))\n", fe.path, len(fe.edits))
+		totalEdits += len(fe.edits)
+	}
+
+	header := fmt.Sprintf("Renamed: %d file(s), %d edit(s) applied.\n", len(all), totalEdits)
+	return header + sb.String(), nil
+}
+
+// splitLines splits text into lines, preserving each line's terminator.
+func splitLines(text string) []string {
+	var lines []string
+	for len(text) > 0 {
+		idx := strings.Index(text, "\n")
+		if idx < 0 {
+			lines = append(lines, text)
+			break
+		}
+		lines = append(lines, text[:idx+1])
+		text = text[idx+1:]
+	}
+	return lines
+}
+
+// applyTextEdit applies a single TextEdit to a slice of lines (each with its terminator).
+func applyTextEdit(lines []string, e lsp.TextEdit) []string {
+	startLine := e.Range.Start.Line
+	endLine := e.Range.End.Line
+	startChar := e.Range.Start.Character
+	endChar := e.Range.End.Character
+
+	if startLine >= len(lines) {
+		return lines
+	}
+
+	startLineText := lines[startLine]
+	prefix := safeSlice(startLineText, 0, startChar)
+
+	var suffix string
+	if endLine < len(lines) {
+		endLineText := lines[endLine]
+		suffix = safeSlice(endLineText, endChar, len(endLineText))
+	}
+
+	merged := prefix + e.NewText + suffix
+
+	newLines := make([]string, 0, len(lines)-(endLine-startLine))
+	newLines = append(newLines, lines[:startLine]...)
+	newLines = append(newLines, merged)
+	if endLine+1 < len(lines) {
+		newLines = append(newLines, lines[endLine+1:]...)
+	}
+	return newLines
+}
+
+func safeSlice(s string, start, end int) string {
+	r := []rune(s)
+	if start > len(r) {
+		start = len(r)
+	}
+	if end > len(r) {
+		end = len(r)
+	}
+	return string(r[start:end])
+}
+
+// ─── Parse helpers ────────────────────────────────────────────────────────────
+
+func parseSymbols(raw json.RawMessage) ([]lsp.SymbolInformation, error) {
+	var symbols []lsp.SymbolInformation
+	if err := json.Unmarshal(raw, &symbols); err != nil {
+		return nil, fmt.Errorf("workspace/symbol parse: %w", err)
+	}
+	return symbols, nil
+}
+
+func parseLocations(raw json.RawMessage) ([]lsp.Location, error) {
+	if raw == nil || string(raw) == "null" {
+		return nil, nil
+	}
+	var locs []lsp.Location
+	if err := json.Unmarshal(raw, &locs); err != nil {
+		var single lsp.Location
+		if err2 := json.Unmarshal(raw, &single); err2 == nil {
+			return []lsp.Location{single}, nil
+		}
+		return nil, fmt.Errorf("location parse: %w", err)
+	}
+	return locs, nil
+}
+
+// ─── Formatting helpers ───────────────────────────────────────────────────────
+
+func formatLocations(workspace string, locs []lsp.Location) string {
+	if len(locs) == 0 {
+		return "No references found."
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "References (%d):\n", len(locs))
+	for _, loc := range locs {
+		path := uriToPath(loc.URI)
+		rel := relativePath(workspace, path)
+		fmt.Fprintf(&sb, "  %s:%d:%d\n", rel, loc.Range.Start.Line+1, loc.Range.Start.Character+1)
+	}
+	return sb.String()
+}
+
+func symbolKindName(kind int) string {
+	names := map[int]string{
+		1: "File", 2: "Module", 3: "Namespace", 4: "Package",
+		5: "Class", 6: "Method", 7: "Property", 8: "Field",
+		9: "Constructor", 10: "Enum", 11: "Interface", 12: "Function",
+		13: "Variable", 14: "Constant", 15: "String", 16: "Number",
+		17: "Boolean", 18: "Array", 19: "Object", 20: "Key",
+		21: "Null", 22: "EnumMember", 23: "Struct", 24: "Event",
+		25: "Operator", 26: "TypeParameter",
+	}
+	if n, ok := names[kind]; ok {
+		return n
+	}
+	return "Symbol"
+}
+
+// ─── URI / path helpers ───────────────────────────────────────────────────────
+
+func pathToURI(path string) string {
+	abs, _ := filepath.Abs(path)
+	abs = filepath.ToSlash(abs)
+	if !strings.HasPrefix(abs, "/") {
+		abs = "/" + abs
+	}
+	return "file://" + abs
+}
+
+func uriToPath(uri string) string {
+	path := strings.TrimPrefix(uri, "file://")
+	if len(path) > 2 && path[0] == '/' && path[2] == ':' {
+		path = path[1:]
+	}
+	return filepath.FromSlash(path)
+}
+
+func relativePath(workspace, path string) string {
+	rel, err := filepath.Rel(workspace, path)
+	if err != nil {
+		return path
+	}
+	return rel
+}
+
+// ─── Argument helpers ─────────────────────────────────────────────────────────
+
+func stringArg(req mcp.CallToolRequest, name string) string {
+	if v, ok := req.Params.Arguments[name]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func intArg(req mcp.CallToolRequest, name string) int {
+	if v, ok := req.Params.Arguments[name]; ok {
+		switch n := v.(type) {
+		case float64:
+			return int(n)
+		case int:
+			return n
+		}
+	}
+	return 0
+}
