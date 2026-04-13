@@ -1,9 +1,19 @@
 // Package mcp registers MCP tools backed by the LSP proxy.
 //
 // Tools (names mirror LSP method names, "/" replaced with "_"):
-//   - workspace_symbol      — search symbols by query string
-//   - textDocument_references — find all references at a position
-//   - textDocument_rename   — rename a symbol and apply edits to disk
+//   - workspace_symbol                 — search symbols by query string
+//   - workspace_symbolResolve          — resolve full location for a WorkspaceSymbol
+//   - textDocument_references          — find all references at a position
+//   - textDocument_rename              — rename a symbol and apply edits to disk
+//   - textDocument_hover               — hover info (type/docs) at a position
+//   - textDocument_declaration         — go to declaration
+//   - textDocument_definition          — go to definition
+//   - textDocument_typeDefinition      — go to type definition
+//   - textDocument_implementation      — go to implementations
+//   - textDocument_prepareCallHierarchy — prepare call hierarchy items at a position
+//   - callHierarchy_incomingCalls      — incoming callers for a call-hierarchy item
+//   - callHierarchy_outgoingCalls      — outgoing callees for a call-hierarchy item
+//   - textDocument_documentSymbol      — list all symbols in a document
 package mcp
 
 import (
@@ -82,6 +92,182 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 				intArg(req, "column"),
 				stringArg(req, "newName"),
 			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_hover",
+			mcp.WithDescription("Return hover information (type signature, documentation) for the symbol at a given position (textDocument/hover)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentHoverTool(p,
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_declaration",
+			mcp.WithDescription("Go to the declaration of the symbol at a given position (textDocument/declaration)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentLocationTool(p, "textDocument/declaration", "Declarations",
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_definition",
+			mcp.WithDescription("Go to the definition of the symbol at a given position (textDocument/definition)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentLocationTool(p, "textDocument/definition", "Definitions",
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_typeDefinition",
+			mcp.WithDescription("Go to the type definition of the symbol at a given position (textDocument/typeDefinition)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentLocationTool(p, "textDocument/typeDefinition", "Type definitions",
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_implementation",
+			mcp.WithDescription("Find implementations of the symbol at a given position (textDocument/implementation)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentLocationTool(p, "textDocument/implementation", "Implementations",
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_prepareCallHierarchy",
+			mcp.WithDescription("Prepare call hierarchy items for the symbol at a given position; pass an item's JSON to callHierarchy_incomingCalls or callHierarchy_outgoingCalls (textDocument/prepareCallHierarchy)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentPrepareCallHierarchyTool(p,
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("callHierarchy_incomingCalls",
+			mcp.WithDescription("List all callers of a call-hierarchy item (callHierarchy/incomingCalls). Pass the JSON object of a CallHierarchyItem as returned by textDocument_prepareCallHierarchy."),
+			mcp.WithString("item", mcp.Required(), mcp.Description("JSON object of a CallHierarchyItem.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := callHierarchyIncomingCallsTool(p, stringArg(req, "item"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("callHierarchy_outgoingCalls",
+			mcp.WithDescription("List all callees of a call-hierarchy item (callHierarchy/outgoingCalls). Pass the JSON object of a CallHierarchyItem as returned by textDocument_prepareCallHierarchy."),
+			mcp.WithString("item", mcp.Required(), mcp.Description("JSON object of a CallHierarchyItem.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := callHierarchyOutgoingCallsTool(p, stringArg(req, "item"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_documentSymbol",
+			mcp.WithDescription("List all symbols (functions, classes, variables, …) defined in a document (textDocument/documentSymbol)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentDocumentSymbolTool(p, stringArg(req, "filePath"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("workspace_symbolResolve",
+			mcp.WithDescription("Resolve additional information (e.g. full location) for a WorkspaceSymbol (workspace/symbolResolve). Pass the JSON object of a WorkspaceSymbol."),
+			mcp.WithString("symbol", mcp.Required(), mcp.Description("JSON object of a WorkspaceSymbol.")),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := workspaceSymbolResolveTool(p, stringArg(req, "symbol"))
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -180,6 +366,201 @@ func textDocumentRenameTool(p LSPClient, filePath string, line, col int, newName
 	}
 
 	return applyWorkspaceEdits(edits)
+}
+
+func textDocumentHoverTool(p LSPClient, filePath string, line, col int) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		"position":     map[string]int{"line": line - 1, "character": col - 1},
+	})
+	raw, err := p.SendRequest("textDocument/hover", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No hover information available at this position.", nil
+	}
+	var hover lsp.Hover
+	if err := json.Unmarshal(raw, &hover); err != nil {
+		return "", fmt.Errorf("hover parse: %w", err)
+	}
+	return extractHoverText(hover.Contents), nil
+}
+
+func textDocumentLocationTool(p LSPClient, method, label, filePath string, line, col int) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		"position":     map[string]int{"line": line - 1, "character": col - 1},
+	})
+	raw, err := p.SendRequest(method, params)
+	if err != nil {
+		return "", err
+	}
+	locs, err := parseLocationsOrLinks(raw)
+	if err != nil {
+		return "", err
+	}
+	return formatLocationList(p.Workspace(), locs, label), nil
+}
+
+func textDocumentPrepareCallHierarchyTool(p LSPClient, filePath string, line, col int) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		"position":     map[string]int{"line": line - 1, "character": col - 1},
+	})
+	raw, err := p.SendRequest("textDocument/prepareCallHierarchy", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No call hierarchy items at this position.", nil
+	}
+	var items []lsp.CallHierarchyItem
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return "", fmt.Errorf("prepareCallHierarchy parse: %w", err)
+	}
+	if len(items) == 0 {
+		return "No call hierarchy items at this position.", nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Call hierarchy items (%d):\n", len(items))
+	for i, item := range items {
+		rel := relativePath(p.Workspace(), uriToPath(item.URI))
+		fmt.Fprintf(&sb, "  [%d] [%s] %s  %s:%d:%d\n",
+			i, symbolKindName(item.Kind), item.Name,
+			rel, item.SelectionRange.Start.Line+1, item.SelectionRange.Start.Character+1,
+		)
+		if item.Detail != "" {
+			fmt.Fprintf(&sb, "      detail: %s\n", item.Detail)
+		}
+		itemJSON, _ := json.Marshal(item)
+		fmt.Fprintf(&sb, "      json: %s\n", itemJSON)
+	}
+	return sb.String(), nil
+}
+
+func callHierarchyIncomingCallsTool(p LSPClient, itemJSON string) (string, error) {
+	params, _ := json.Marshal(map[string]json.RawMessage{
+		"item": json.RawMessage(itemJSON),
+	})
+	raw, err := p.SendRequest("callHierarchy/incomingCalls", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No incoming calls found.", nil
+	}
+	var calls []lsp.CallHierarchyIncomingCall
+	if err := json.Unmarshal(raw, &calls); err != nil {
+		return "", fmt.Errorf("incomingCalls parse: %w", err)
+	}
+	if len(calls) == 0 {
+		return "No incoming calls found.", nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Incoming calls (%d):\n", len(calls))
+	for _, c := range calls {
+		rel := relativePath(p.Workspace(), uriToPath(c.From.URI))
+		fmt.Fprintf(&sb, "  [%s] %s  %s:%d:%d  (%d call site(s))\n",
+			symbolKindName(c.From.Kind), c.From.Name,
+			rel, c.From.SelectionRange.Start.Line+1, c.From.SelectionRange.Start.Character+1,
+			len(c.FromRanges),
+		)
+	}
+	return sb.String(), nil
+}
+
+func callHierarchyOutgoingCallsTool(p LSPClient, itemJSON string) (string, error) {
+	params, _ := json.Marshal(map[string]json.RawMessage{
+		"item": json.RawMessage(itemJSON),
+	})
+	raw, err := p.SendRequest("callHierarchy/outgoingCalls", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No outgoing calls found.", nil
+	}
+	var calls []lsp.CallHierarchyOutgoingCall
+	if err := json.Unmarshal(raw, &calls); err != nil {
+		return "", fmt.Errorf("outgoingCalls parse: %w", err)
+	}
+	if len(calls) == 0 {
+		return "No outgoing calls found.", nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Outgoing calls (%d):\n", len(calls))
+	for _, c := range calls {
+		rel := relativePath(p.Workspace(), uriToPath(c.To.URI))
+		fmt.Fprintf(&sb, "  [%s] %s  %s:%d:%d  (%d call site(s))\n",
+			symbolKindName(c.To.Kind), c.To.Name,
+			rel, c.To.SelectionRange.Start.Line+1, c.To.SelectionRange.Start.Character+1,
+			len(c.FromRanges),
+		)
+	}
+	return sb.String(), nil
+}
+
+func textDocumentDocumentSymbolTool(p LSPClient, filePath string) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+	})
+	raw, err := p.SendRequest("textDocument/documentSymbol", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No symbols found.", nil
+	}
+
+	rel := relativePath(p.Workspace(), filePath)
+
+	// Distinguish DocumentSymbol[] (has "selectionRange") from SymbolInformation[] (has "location").
+	if isDocumentSymbolArray(raw) {
+		var docSyms []lsp.DocumentSymbol
+		if err := json.Unmarshal(raw, &docSyms); err != nil {
+			return "", fmt.Errorf("documentSymbol parse: %w", err)
+		}
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Document symbols in %s (%d):\n", rel, len(docSyms))
+		printDocumentSymbols(docSyms, "", &sb)
+		return sb.String(), nil
+	}
+
+	// Fall back to flat SymbolInformation[].
+	symbols, err := parseSymbols(raw)
+	if err != nil {
+		return "", fmt.Errorf("documentSymbol parse: %w", err)
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Document symbols in %s (%d):\n", rel, len(symbols))
+	for _, sym := range symbols {
+		fmt.Fprintf(&sb, "  [%s] %s  %d:%d\n",
+			symbolKindName(sym.Kind), sym.Name,
+			sym.Location.Range.Start.Line+1, sym.Location.Range.Start.Character+1,
+		)
+	}
+	return sb.String(), nil
+}
+
+func workspaceSymbolResolveTool(p LSPClient, symbolJSON string) (string, error) {
+	raw, err := p.SendRequest("workspace/symbolResolve", json.RawMessage(symbolJSON))
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "Symbol could not be resolved.", nil
+	}
+	// Pretty-print the resolved symbol.
+	var pretty interface{}
+	if err := json.Unmarshal(raw, &pretty); err != nil {
+		return string(raw), nil
+	}
+	out, _ := json.MarshalIndent(pretty, "", "  ")
+	return string(out), nil
 }
 
 // ─── WorkspaceEdit application ────────────────────────────────────────────────
@@ -335,6 +716,32 @@ func parseSymbols(raw json.RawMessage) ([]lsp.SymbolInformation, error) {
 	return symbols, nil
 }
 
+func parseLocationsOrLinks(raw json.RawMessage) ([]lsp.Location, error) {
+	if raw == nil || string(raw) == "null" {
+		return nil, nil
+	}
+	// Try []Location.
+	var locs []lsp.Location
+	if err := json.Unmarshal(raw, &locs); err == nil && len(locs) > 0 && locs[0].URI != "" {
+		return locs, nil
+	}
+	// Try single Location.
+	var single lsp.Location
+	if err := json.Unmarshal(raw, &single); err == nil && single.URI != "" {
+		return []lsp.Location{single}, nil
+	}
+	// Try []LocationLink.
+	var links []lsp.LocationLink
+	if err := json.Unmarshal(raw, &links); err == nil && len(links) > 0 {
+		result := make([]lsp.Location, len(links))
+		for i, l := range links {
+			result[i] = lsp.Location{URI: l.TargetURI, Range: l.TargetSelectionRange}
+		}
+		return result, nil
+	}
+	return nil, nil
+}
+
 func parseLocations(raw json.RawMessage) ([]lsp.Location, error) {
 	if raw == nil || string(raw) == "null" {
 		return nil, nil
@@ -351,6 +758,79 @@ func parseLocations(raw json.RawMessage) ([]lsp.Location, error) {
 }
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
+
+func formatLocationList(workspace string, locs []lsp.Location, label string) string {
+	if len(locs) == 0 {
+		return fmt.Sprintf("No %s found.", strings.ToLower(label))
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "%s (%d):\n", label, len(locs))
+	for _, loc := range locs {
+		path := uriToPath(loc.URI)
+		rel := relativePath(workspace, path)
+		fmt.Fprintf(&sb, "  %s:%d:%d\n", rel, loc.Range.Start.Line+1, loc.Range.Start.Character+1)
+	}
+	return sb.String()
+}
+
+// extractHoverText converts any LSP hover contents variant to plain text.
+func extractHoverText(raw json.RawMessage) string {
+	if raw == nil {
+		return ""
+	}
+	// MarkupContent: {"kind":"markdown","value":"..."}
+	var mc struct {
+		Kind  string `json:"kind"`
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(raw, &mc); err == nil && mc.Value != "" {
+		return mc.Value
+	}
+	// Plain string.
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+	// Array of MarkedString/MarkupContent.
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		parts := make([]string, 0, len(arr))
+		for _, item := range arr {
+			parts = append(parts, extractHoverText(item))
+		}
+		return strings.Join(parts, "\n")
+	}
+	return string(raw)
+}
+
+// isDocumentSymbolArray returns true when raw looks like DocumentSymbol[] rather than SymbolInformation[].
+// DocumentSymbol has "selectionRange"; SymbolInformation has "location".
+func isDocumentSymbolArray(raw json.RawMessage) bool {
+	var arr []json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil || len(arr) == 0 {
+		return false
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(arr[0], &obj); err != nil {
+		return false
+	}
+	_, has := obj["selectionRange"]
+	return has
+}
+
+// printDocumentSymbols recursively writes a DocumentSymbol tree to sb.
+func printDocumentSymbols(syms []lsp.DocumentSymbol, indent string, sb *strings.Builder) {
+	for _, sym := range syms {
+		fmt.Fprintf(sb, "%s[%s] %s", indent, symbolKindName(sym.Kind), sym.Name)
+		if sym.Detail != "" {
+			fmt.Fprintf(sb, "  (%s)", sym.Detail)
+		}
+		fmt.Fprintf(sb, "  %d:%d\n", sym.Range.Start.Line+1, sym.Range.Start.Character+1)
+		if len(sym.Children) > 0 {
+			printDocumentSymbols(sym.Children, indent+"  ", sb)
+		}
+	}
+}
 
 func formatLocations(workspace string, locs []lsp.Location) string {
 	if len(locs) == 0 {

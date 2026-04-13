@@ -62,3 +62,51 @@ type TextEdit struct {
 	Range   Range  `json:"range"`
 	NewText string `json:"newText"`
 }
+
+// Hover is the result of a textDocument/hover request.
+type Hover struct {
+	Contents json.RawMessage `json:"contents"`
+	Range    *Range          `json:"range,omitempty"`
+}
+
+// LocationLink links an origin selection range to a target location.
+type LocationLink struct {
+	OriginSelectionRange *Range `json:"originSelectionRange,omitempty"`
+	TargetURI            string `json:"targetUri"`
+	TargetRange          Range  `json:"targetRange"`
+	TargetSelectionRange Range  `json:"targetSelectionRange"`
+}
+
+// CallHierarchyItem represents a node in a call hierarchy.
+type CallHierarchyItem struct {
+	Name           string          `json:"name"`
+	Kind           int             `json:"kind"`
+	Detail         string          `json:"detail,omitempty"`
+	URI            string          `json:"uri"`
+	Range          Range           `json:"range"`
+	SelectionRange Range           `json:"selectionRange"`
+	Data           json.RawMessage `json:"data,omitempty"`
+}
+
+// CallHierarchyIncomingCall is a single entry returned by callHierarchy/incomingCalls.
+type CallHierarchyIncomingCall struct {
+	From       CallHierarchyItem `json:"from"`
+	FromRanges []Range           `json:"fromRanges"`
+}
+
+// CallHierarchyOutgoingCall is a single entry returned by callHierarchy/outgoingCalls.
+type CallHierarchyOutgoingCall struct {
+	To         CallHierarchyItem `json:"to"`
+	FromRanges []Range           `json:"fromRanges"`
+}
+
+// DocumentSymbol represents a symbol in a document, possibly with nested children.
+type DocumentSymbol struct {
+	Name           string           `json:"name"`
+	Detail         string           `json:"detail,omitempty"`
+	Kind           int              `json:"kind"`
+	Deprecated     bool             `json:"deprecated,omitempty"`
+	Range          Range            `json:"range"`
+	SelectionRange Range            `json:"selectionRange"`
+	Children       []DocumentSymbol `json:"children,omitempty"`
+}
