@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 )
 
 const (
@@ -38,15 +37,13 @@ func Load() Config {
 	}
 }
 
-// loadFile reads <exe_name>.cfg from the same directory as the executable.
+// loadFile reads clangd-mcp.cfg from the same directory as the executable.
 func loadFile() fileConfig {
 	exe, err := os.Executable()
 	if err != nil {
 		return fileConfig{}
 	}
-	base := filepath.Base(exe)
-	name := strings.TrimSuffix(base, filepath.Ext(base))
-	cfgPath := filepath.Join(filepath.Dir(exe), name+".cfg")
+	cfgPath := filepath.Join(filepath.Dir(exe), "clangd-mcp.cfg")
 
 	data, err := os.ReadFile(cfgPath)
 	if err != nil {

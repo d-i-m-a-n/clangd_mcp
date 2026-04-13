@@ -49,7 +49,7 @@ Preferences → C++ → Clang Code Model → Override clangd executable → ук
 
 ### Конфиг-файл
 
-Файл `<имя_exe>.cfg` в формате JSON, расположенный рядом с исполняемым файлом. Например, для `clangd-mcp.exe` файл будет `clangd-mcp.cfg`:
+Файл `clangd-mcp.cfg` в формате JSON, расположенный рядом с исполняемым файлом:
 
 ```json
 {
@@ -63,6 +63,26 @@ Preferences → C++ → Clang Code Model → Override clangd executable → ук
 1. Переменная окружения `CLANGD_MCP_CLANGD_PATH`
 2. Поле `clangd_path` из конфиг-файла
 3. Поиск `clangd` в системном PATH
+
+## MCP-тулы
+
+Имена тулов повторяют названия LSP-методов (`/` заменяется на `_`).
+
+| Тул | LSP-метод | Описание |
+|---|---|---|
+| `workspace_symbol` | `workspace/symbol` | Поиск символов по имени |
+| `workspace_symbolResolve` | `workspace/symbolResolve` | Получить полную локацию WorkspaceSymbol |
+| `textDocument_references` | `textDocument/references` | Все места использования символа |
+| `textDocument_rename` | `textDocument/rename` | Переименование символа по всему проекту |
+| `textDocument_hover` | `textDocument/hover` | Тип и документация символа |
+| `textDocument_declaration` | `textDocument/declaration` | Перейти к объявлению |
+| `textDocument_definition` | `textDocument/definition` | Перейти к определению |
+| `textDocument_typeDefinition` | `textDocument/typeDefinition` | Перейти к определению типа |
+| `textDocument_implementation` | `textDocument/implementation` | Найти реализации |
+| `textDocument_prepareCallHierarchy` | `textDocument/prepareCallHierarchy` | Подготовить узлы иерархии вызовов |
+| `callHierarchy_incomingCalls` | `callHierarchy/incomingCalls` | Кто вызывает функцию |
+| `callHierarchy_outgoingCalls` | `callHierarchy/outgoingCalls` | Что вызывает функция |
+| `textDocument_documentSymbol` | `textDocument/documentSymbol` | Все символы в файле |
 
 ## Подключение MCP-клиента
 
