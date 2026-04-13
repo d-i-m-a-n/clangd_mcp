@@ -47,6 +47,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("query",
 				mcp.Required(),
 				mcp.Description("Symbol name or partial name to search for (e.g. 'Plugin' or 'Potap::Plugin').")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := workspaceSymbolTool(p, stringArg(req, "query"))
@@ -63,6 +64,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentReferencesTool(p,
@@ -84,6 +86,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
 			mcp.WithString("newName", mcp.Required(), mcp.Description("New name for the symbol.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{DestructiveHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentRenameTool(p,
@@ -105,6 +108,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentHoverTool(p,
@@ -125,6 +129,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentLocationTool(p, "textDocument/declaration", "Declarations",
@@ -145,6 +150,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentLocationTool(p, "textDocument/definition", "Definitions",
@@ -165,6 +171,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentLocationTool(p, "textDocument/typeDefinition", "Type definitions",
@@ -185,6 +192,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentLocationTool(p, "textDocument/implementation", "Implementations",
@@ -205,6 +213,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
 			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
 			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentPrepareCallHierarchyTool(p,
@@ -223,6 +232,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 		mcp.NewTool("callHierarchy_incomingCalls",
 			mcp.WithDescription("List all callers of a call-hierarchy item (callHierarchy/incomingCalls). Pass the JSON object of a CallHierarchyItem as returned by textDocument_prepareCallHierarchy."),
 			mcp.WithString("item", mcp.Required(), mcp.Description("JSON object of a CallHierarchyItem.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := callHierarchyIncomingCallsTool(p, stringArg(req, "item"))
@@ -237,6 +247,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 		mcp.NewTool("callHierarchy_outgoingCalls",
 			mcp.WithDescription("List all callees of a call-hierarchy item (callHierarchy/outgoingCalls). Pass the JSON object of a CallHierarchyItem as returned by textDocument_prepareCallHierarchy."),
 			mcp.WithString("item", mcp.Required(), mcp.Description("JSON object of a CallHierarchyItem.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := callHierarchyOutgoingCallsTool(p, stringArg(req, "item"))
@@ -251,6 +262,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 		mcp.NewTool("textDocument_documentSymbol",
 			mcp.WithDescription("List all symbols (functions, classes, variables, …) defined in a document (textDocument/documentSymbol)."),
 			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := textDocumentDocumentSymbolTool(p, stringArg(req, "filePath"))
@@ -265,6 +277,7 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 		mcp.NewTool("workspace_symbolResolve",
 			mcp.WithDescription("Resolve additional information (e.g. full location) for a WorkspaceSymbol (workspace/symbolResolve). Pass the JSON object of a WorkspaceSymbol."),
 			mcp.WithString("symbol", mcp.Required(), mcp.Description("JSON object of a WorkspaceSymbol.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := workspaceSymbolResolveTool(p, stringArg(req, "symbol"))
