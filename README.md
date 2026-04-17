@@ -70,22 +70,22 @@ Preferences → C++ → Clang Code Model → Override clangd executable → ук
 
 | Тул | LSP-метод | Описание |
 |---|---|---|
-| `workspace_symbol` | `workspace/symbol` | Поиск символов по имени |
-| `workspace_symbolResolve` | `workspace/symbolResolve` | Получить полную локацию WorkspaceSymbol |
-| `textDocument_references` | `textDocument/references` | Все места использования символа |
-| `textDocument_rename` | `textDocument/rename` | Переименование символа по всему проекту |
-| `textDocument_hover` | `textDocument/hover` | Тип и документация символа |
-| `textDocument_declaration` | `textDocument/declaration` | Перейти к объявлению |
-| `textDocument_definition` | `textDocument/definition` | Перейти к определению |
-| `textDocument_typeDefinition` | `textDocument/typeDefinition` | Перейти к определению типа |
-| `textDocument_implementation` | `textDocument/implementation` | Найти реализации |
-| `textDocument_prepareCallHierarchy` | `textDocument/prepareCallHierarchy` | Подготовить узлы иерархии вызовов |
 | `callHierarchy_incomingCalls` | `callHierarchy/incomingCalls` | Кто вызывает функцию |
 | `callHierarchy_outgoingCalls` | `callHierarchy/outgoingCalls` | Что вызывает функция |
+| `textDocument_declaration` | `textDocument/declaration` | Перейти к объявлению |
+| `textDocument_definition` | `textDocument/definition` | Перейти к определению |
 | `textDocument_documentSymbol` | `textDocument/documentSymbol` | Все символы в файле |
+| `textDocument_hover` | `textDocument/hover` | Тип и документация символа |
+| `textDocument_implementation` | `textDocument/implementation` | Найти реализации |
+| `textDocument_prepareCallHierarchy` | `textDocument/prepareCallHierarchy` | Подготовить узлы иерархии вызовов |
 | `textDocument_prepareTypeHierarchy` | `textDocument/prepareTypeHierarchy` | Подготовить узлы иерархии типов |
-| `typeHierarchy_supertypes` | `typeHierarchy/supertypes` | Найти суперклассы и интерфейсы |
+| `textDocument_references` | `textDocument/references` | Все места использования символа |
+| `textDocument_rename` | `textDocument/rename` | Переименование символа по всему проекту |
+| `textDocument_typeDefinition` | `textDocument/typeDefinition` | Перейти к определению типа |
 | `typeHierarchy_subtypes` | `typeHierarchy/subtypes` | Найти подклассы и реализации |
+| `typeHierarchy_supertypes` | `typeHierarchy/supertypes` | Найти суперклассы и интерфейсы |
+| `workspace_symbol` | `workspace/symbol` | Поиск символов по имени |
+| `workspace_symbolResolve` | `workspace/symbolResolve` | Получить полную локацию WorkspaceSymbol |
 
 ## Подключение MCP-клиента
 
