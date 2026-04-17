@@ -110,3 +110,26 @@ type DocumentSymbol struct {
 	SelectionRange Range            `json:"selectionRange"`
 	Children       []DocumentSymbol `json:"children,omitempty"`
 }
+
+// TypeHierarchyItem represents a node in a type hierarchy.
+type TypeHierarchyItem struct {
+	Name           string          `json:"name"`
+	Kind           int             `json:"kind"`
+	Detail         string          `json:"detail,omitempty"`
+	URI            string          `json:"uri"`
+	Range          Range           `json:"range"`
+	SelectionRange Range           `json:"selectionRange"`
+	Data           json.RawMessage `json:"data,omitempty"`
+}
+
+// TypeHierarchySupertype is a single entry returned by typeHierarchy/supertypes.
+type TypeHierarchySupertype struct {
+	Type  TypeHierarchyItem `json:"type"`
+	From  []Range           `json:"from,omitempty"`
+}
+
+// TypeHierarchySubtype is a single entry returned by typeHierarchy/subtypes.
+type TypeHierarchySubtype struct {
+	Type TypeHierarchyItem `json:"type"`
+	From []Range           `json:"from,omitempty"`
+}

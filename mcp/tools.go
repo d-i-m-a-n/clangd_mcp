@@ -14,6 +14,9 @@
 //   - callHierarchy_incomingCalls      — incoming callers for a call-hierarchy item
 //   - callHierarchy_outgoingCalls      — outgoing callees for a call-hierarchy item
 //   - textDocument_documentSymbol      — list all symbols in a document
+//   - textDocument_prepareTypeHierarchy — prepare type hierarchy items at a position
+//   - typeHierarchy_supertypes         — supertypes for a type-hierarchy item
+//   - typeHierarchy_subtypes           — subtypes for a type-hierarchy item
 package mcp
 
 import (
@@ -281,6 +284,57 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			result, err := workspaceSymbolResolveTool(p, stringArg(req, "symbol"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("textDocument_prepareTypeHierarchy",
+			mcp.WithDescription("Prepare type hierarchy items for the symbol at a given position; pass an item's JSON to typeHierarchy_supertypes or typeHierarchy_subtypes (textDocument/prepareTypeHierarchy)."),
+			mcp.WithString("filePath", mcp.Required(), mcp.Description("Absolute path to the source file.")),
+			mcp.WithNumber("line", mcp.Required(), mcp.Description("1-based line number.")),
+			mcp.WithNumber("column", mcp.Required(), mcp.Description("1-based column number.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := textDocumentPrepareTypeHierarchyTool(p,
+				stringArg(req, "filePath"),
+				intArg(req, "line"),
+				intArg(req, "column"),
+			)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("typeHierarchy_supertypes",
+			mcp.WithDescription("List all supertypes of a type-hierarchy item (typeHierarchy/supertypes). Pass the JSON object of a TypeHierarchyItem as returned by textDocument_prepareTypeHierarchy."),
+			mcp.WithString("item", mcp.Required(), mcp.Description("JSON object of a TypeHierarchyItem.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := typeHierarchySupertypesTool(p, stringArg(req, "item"))
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			return mcp.NewToolResultText(result), nil
+		},
+	)
+
+	s.AddTool(
+		mcp.NewTool("typeHierarchy_subtypes",
+			mcp.WithDescription("List all subtypes of a type-hierarchy item (typeHierarchy/subtypes). Pass the JSON object of a TypeHierarchyItem as returned by textDocument_prepareTypeHierarchy."),
+			mcp.WithString("item", mcp.Required(), mcp.Description("JSON object of a TypeHierarchyItem.")),
+			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := typeHierarchySubtypesTool(p, stringArg(req, "item"))
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -574,6 +628,105 @@ func workspaceSymbolResolveTool(p LSPClient, symbolJSON string) (string, error) 
 	}
 	out, _ := json.MarshalIndent(pretty, "", "  ")
 	return string(out), nil
+}
+
+func textDocumentPrepareTypeHierarchyTool(p LSPClient, filePath string, line, col int) (string, error) {
+	params, _ := json.Marshal(map[string]interface{}{
+		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		"position":     map[string]int{"line": line - 1, "character": col - 1},
+	})
+	raw, err := p.SendRequest("textDocument/prepareTypeHierarchy", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No type hierarchy items at this position.", nil
+	}
+	var items []lsp.TypeHierarchyItem
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return "", fmt.Errorf("prepareTypeHierarchy parse: %w", err)
+	}
+	if len(items) == 0 {
+		return "No type hierarchy items at this position.", nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Type hierarchy items (%d):\n", len(items))
+	for i, item := range items {
+		rel := relativePath(p.Workspace(), uriToPath(item.URI))
+		fmt.Fprintf(&sb, "  [%d] [%s] %s  %s:%d:%d\n",
+			i, symbolKindName(item.Kind), item.Name,
+			rel, item.SelectionRange.Start.Line+1, item.SelectionRange.Start.Character+1,
+		)
+		if item.Detail != "" {
+			fmt.Fprintf(&sb, "      detail: %s\n", item.Detail)
+		}
+		itemJSON, _ := json.Marshal(item)
+		fmt.Fprintf(&sb, "      json: %s\n", itemJSON)
+	}
+	return sb.String(), nil
+}
+
+func typeHierarchySupertypesTool(p LSPClient, itemJSON string) (string, error) {
+	params, _ := json.Marshal(map[string]json.RawMessage{
+		"item": json.RawMessage(itemJSON),
+	})
+	raw, err := p.SendRequest("typeHierarchy/supertypes", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No supertypes found.", nil
+	}
+	var supertypes []lsp.TypeHierarchySupertype
+	if err := json.Unmarshal(raw, &supertypes); err != nil {
+		return "", fmt.Errorf("supertypes parse: %w", err)
+	}
+	if len(supertypes) == 0 {
+		return "No supertypes found.", nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Supertypes (%d):\n", len(supertypes))
+	for _, st := range supertypes {
+		rel := relativePath(p.Workspace(), uriToPath(st.Type.URI))
+		fmt.Fprintf(&sb, "  [%s] %s  %s:%d:%d\n",
+			symbolKindName(st.Type.Kind), st.Type.Name,
+			rel, st.Type.SelectionRange.Start.Line+1, st.Type.SelectionRange.Start.Character+1,
+		)
+	}
+	return sb.String(), nil
+}
+
+func typeHierarchySubtypesTool(p LSPClient, itemJSON string) (string, error) {
+	params, _ := json.Marshal(map[string]json.RawMessage{
+		"item": json.RawMessage(itemJSON),
+	})
+	raw, err := p.SendRequest("typeHierarchy/subtypes", params)
+	if err != nil {
+		return "", err
+	}
+	if raw == nil || string(raw) == "null" {
+		return "No subtypes found.", nil
+	}
+	var subtypes []lsp.TypeHierarchySubtype
+	if err := json.Unmarshal(raw, &subtypes); err != nil {
+		return "", fmt.Errorf("subtypes parse: %w", err)
+	}
+	if len(subtypes) == 0 {
+		return "No subtypes found.", nil
+	}
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "Subtypes (%d):\n", len(subtypes))
+	for _, st := range subtypes {
+		rel := relativePath(p.Workspace(), uriToPath(st.Type.URI))
+		fmt.Fprintf(&sb, "  [%s] %s  %s:%d:%d\n",
+			symbolKindName(st.Type.Kind), st.Type.Name,
+			rel, st.Type.SelectionRange.Start.Line+1, st.Type.SelectionRange.Start.Character+1,
+		)
+	}
+	return sb.String(), nil
 }
 
 // ─── WorkspaceEdit application ────────────────────────────────────────────────

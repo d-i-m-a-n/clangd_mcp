@@ -83,6 +83,9 @@ Preferences → C++ → Clang Code Model → Override clangd executable → ук
 | `callHierarchy_incomingCalls` | `callHierarchy/incomingCalls` | Кто вызывает функцию |
 | `callHierarchy_outgoingCalls` | `callHierarchy/outgoingCalls` | Что вызывает функция |
 | `textDocument_documentSymbol` | `textDocument/documentSymbol` | Все символы в файле |
+| `textDocument_prepareTypeHierarchy` | `textDocument/prepareTypeHierarchy` | Подготовить узлы иерархии типов |
+| `typeHierarchy_supertypes` | `typeHierarchy/supertypes` | Найти суперклассы и интерфейсы |
+| `typeHierarchy_subtypes` | `typeHierarchy/subtypes` | Найти подклассы и реализации |
 
 ## Подключение MCP-клиента
 
