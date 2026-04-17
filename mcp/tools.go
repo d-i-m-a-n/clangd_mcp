@@ -42,8 +42,25 @@ type LSPClient interface {
 	Workspace() string
 }
 
+// toolHandler wraps a tool handler function with logging.
+func wrapToolHandler(name string, logger *SSEDebugLogger, handler func() (string, error)) func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if logger != nil {
+			logger.LogRequest(name, req.Params.Arguments)
+		}
+		result, err := handler()
+		if logger != nil {
+			logger.LogResponse(name, result, err)
+		}
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		return mcp.NewToolResultText(result), nil
+	}
+}
+
 // RegisterTools adds all tools to an MCPServer.
-func RegisterTools(s *server.MCPServer, p LSPClient) {
+func RegisterTools(s *server.MCPServer, p LSPClient, logger *SSEDebugLogger) {
 	s.AddTool(
 		mcp.NewTool("workspace_symbol",
 			mcp.WithDescription("Search for symbols in the workspace by name or partial name (workspace/symbol)."),
@@ -53,7 +70,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("workspace_symbol", req.Params.Arguments)
+			}
 			result, err := workspaceSymbolTool(p, stringArg(req, "query"))
+			if logger != nil {
+				logger.LogResponse("workspace_symbol", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -70,11 +93,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_references", req.Params.Arguments)
+			}
 			result, err := textDocumentReferencesTool(p,
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_references", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -92,12 +121,18 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{DestructiveHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_rename", req.Params.Arguments)
+			}
 			result, err := textDocumentRenameTool(p,
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 				stringArg(req, "newName"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_rename", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -114,11 +149,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_hover", req.Params.Arguments)
+			}
 			result, err := textDocumentHoverTool(p,
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_hover", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -135,11 +176,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_declaration", req.Params.Arguments)
+			}
 			result, err := textDocumentLocationTool(p, "textDocument/declaration", "Declarations",
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_declaration", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -156,11 +203,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_definition", req.Params.Arguments)
+			}
 			result, err := textDocumentLocationTool(p, "textDocument/definition", "Definitions",
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_definition", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -177,11 +230,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_typeDefinition", req.Params.Arguments)
+			}
 			result, err := textDocumentLocationTool(p, "textDocument/typeDefinition", "Type definitions",
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_typeDefinition", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -198,11 +257,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_implementation", req.Params.Arguments)
+			}
 			result, err := textDocumentLocationTool(p, "textDocument/implementation", "Implementations",
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_implementation", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -219,11 +284,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_prepareCallHierarchy", req.Params.Arguments)
+			}
 			result, err := textDocumentPrepareCallHierarchyTool(p,
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_prepareCallHierarchy", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -238,7 +309,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("callHierarchy_incomingCalls", req.Params.Arguments)
+			}
 			result, err := callHierarchyIncomingCallsTool(p, stringArg(req, "item"))
+			if logger != nil {
+				logger.LogResponse("callHierarchy_incomingCalls", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -253,7 +330,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("callHierarchy_outgoingCalls", req.Params.Arguments)
+			}
 			result, err := callHierarchyOutgoingCallsTool(p, stringArg(req, "item"))
+			if logger != nil {
+				logger.LogResponse("callHierarchy_outgoingCalls", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -268,7 +351,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_documentSymbol", req.Params.Arguments)
+			}
 			result, err := textDocumentDocumentSymbolTool(p, stringArg(req, "filePath"))
+			if logger != nil {
+				logger.LogResponse("textDocument_documentSymbol", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -283,7 +372,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("workspace_symbolResolve", req.Params.Arguments)
+			}
 			result, err := workspaceSymbolResolveTool(p, stringArg(req, "symbol"))
+			if logger != nil {
+				logger.LogResponse("workspace_symbolResolve", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -300,11 +395,17 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("textDocument_prepareTypeHierarchy", req.Params.Arguments)
+			}
 			result, err := textDocumentPrepareTypeHierarchyTool(p,
 				stringArg(req, "filePath"),
 				intArg(req, "line"),
 				intArg(req, "column"),
 			)
+			if logger != nil {
+				logger.LogResponse("textDocument_prepareTypeHierarchy", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -319,7 +420,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("typeHierarchy_supertypes", req.Params.Arguments)
+			}
 			result, err := typeHierarchySupertypesTool(p, stringArg(req, "item"))
+			if logger != nil {
+				logger.LogResponse("typeHierarchy_supertypes", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -334,7 +441,13 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 			mcp.WithToolAnnotation(mcp.ToolAnnotation{ReadOnlyHint: true}),
 		),
 		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			if logger != nil {
+				logger.LogRequest("typeHierarchy_subtypes", req.Params.Arguments)
+			}
 			result, err := typeHierarchySubtypesTool(p, stringArg(req, "item"))
+			if logger != nil {
+				logger.LogResponse("typeHierarchy_subtypes", result, err)
+			}
 			if err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
@@ -346,7 +459,15 @@ func RegisterTools(s *server.MCPServer, p LSPClient) {
 // NewSSEServer creates an SSE-based MCP server and registers all tools.
 func NewSSEServer(p LSPClient, port int) *server.SSEServer {
 	s := server.NewMCPServer("clangd-mcp", "1.0.0")
-	RegisterTools(s, p)
+	RegisterTools(s, p, nil)
+	baseURL := fmt.Sprintf("http://localhost:%d", port)
+	return server.NewSSEServer(s, server.WithBaseURL(baseURL))
+}
+
+// NewSSEServerWithLogger creates an SSE-based MCP server with debug logging.
+func NewSSEServerWithLogger(p LSPClient, port int, logger *SSEDebugLogger) *server.SSEServer {
+	s := server.NewMCPServer("clangd-mcp", "1.0.0")
+	RegisterTools(s, p, logger)
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
 	return server.NewSSEServer(s, server.WithBaseURL(baseURL))
 }

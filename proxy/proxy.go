@@ -32,10 +32,18 @@ import (
 	"clangd-mcp/lsp"
 )
 
+// SSELogger is the interface for SSE debug logging.
+type SSELogger interface {
+	LogLSPRequest(method string, params json.RawMessage)
+	LogLSPResponse(method string, result json.RawMessage, err error)
+}
+
 // Config holds proxy configuration.
 type Config struct {
-	MCPPort   int    // HTTP port for MCP SSE server
-	Workspace string // workspace root directory
+	MCPPort    int        // HTTP port for MCP SSE server
+	Workspace  string     // workspace root directory
+	DebugSSE   bool       // verbose SSE request/response logging
+	SSELogger  SSELogger  // debug logger for SSE requests
 }
 
 type reqResult struct {
@@ -51,7 +59,8 @@ type pendingEntry struct {
 
 // Proxy manages bidirectional LSP message forwarding and MCP integration.
 type Proxy struct {
-	cfg Config
+	cfg    Config
+	logger SSELogger
 
 	// LSP server process
 	cmd   *exec.Cmd
@@ -76,6 +85,7 @@ type Proxy struct {
 func New(cfg Config) *Proxy {
 	return &Proxy{
 		cfg:     cfg,
+		logger:  cfg.SSELogger,
 		pending: make(map[string]*pendingEntry),
 		capsCh:  make(chan struct{}),
 	}
@@ -229,6 +239,10 @@ func (p *Proxy) writeIDE(msg *lsp.Message) {
 
 // sendRequest sends an LSP request from the proxy (or MCP tool) and waits for the response.
 func (p *Proxy) sendRequest(method string, params json.RawMessage) (json.RawMessage, error) {
+	if p.logger != nil {
+		p.logger.LogLSPRequest(method, params)
+	}
+
 	n := p.counter.Add(1)
 	remapped := fmt.Sprintf("M%d", n)
 
@@ -250,20 +264,34 @@ func (p *Proxy) sendRequest(method string, params json.RawMessage) (json.RawMess
 		p.mu.Lock()
 		delete(p.pending, remapped)
 		p.mu.Unlock()
+		if p.logger != nil {
+			p.logger.LogLSPResponse(method, nil, err)
+		}
 		return nil, err
 	}
 
 	select {
 	case r := <-ch:
 		if r.lspErr != nil {
-			return nil, fmt.Errorf("LSP error %d: %s", r.lspErr.Code, r.lspErr.Message)
+			err := fmt.Errorf("LSP error %d: %s", r.lspErr.Code, r.lspErr.Message)
+			if p.logger != nil {
+				p.logger.LogLSPResponse(method, nil, err)
+			}
+			return nil, err
+		}
+		if p.logger != nil {
+			p.logger.LogLSPResponse(method, r.result, nil)
 		}
 		return r.result, nil
 	case <-time.After(30 * time.Second):
 		p.mu.Lock()
 		delete(p.pending, remapped)
 		p.mu.Unlock()
-		return nil, fmt.Errorf("timeout waiting for %s", method)
+		err := fmt.Errorf("timeout waiting for %s", method)
+		if p.logger != nil {
+			p.logger.LogLSPResponse(method, nil, err)
+		}
+		return nil, err
 	}
 }
 

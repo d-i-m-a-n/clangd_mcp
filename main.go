@@ -33,6 +33,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mark3labs/mcp-go/server"
+
 	"clangd-mcp/config"
 	mcpserver "clangd-mcp/mcp"
 	"clangd-mcp/proxy"
@@ -117,9 +119,16 @@ func main() {
 
 	workspace, _ := os.Getwd()
 
+	sseLogger := mcpserver.NewSSEDebugLogger(cfg.DebugSSE)
+	if cfg.DebugSSE {
+		log.Printf("clangd-mcp: SSE debug logging enabled")
+	}
+
 	proxyCfg := proxy.Config{
-		MCPPort:   cfg.Port,
-		Workspace: workspace,
+		MCPPort:    cfg.Port,
+		Workspace:  workspace,
+		DebugSSE:   cfg.DebugSSE,
+		SSELogger:  sseLogger,
 	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -131,7 +140,7 @@ func main() {
 	go p.RunQTC()
 
 	if hasArg(os.Args[1:], "--compile-commands-dir") {
-		go startMCPServer(p, cfg.Port)
+		go startMCPServer(p, cfg)
 	} else {
 		log.Printf("clangd-mcp: --compile-commands-dir not set, MCP server not started")
 	}
@@ -166,22 +175,28 @@ func (r *chanReader) Read(p []byte) (int, error) {
 
 // startMCPServer tries to bind the MCP port, retrying if it is still held by a
 // dying previous instance (IDE launches overlapping proxy processes).
-func startMCPServer(p *proxy.Proxy, port int) {
+func startMCPServer(p *proxy.Proxy, cfg config.Config) {
 	const (
 		maxRetries = 10
 		retryDelay = 1 * time.Second
 	)
-	addr := fmt.Sprintf(":%d", port)
+	addr := fmt.Sprintf(":%d", cfg.Port)
 
 	for i := range maxRetries {
-		sseServer := mcpserver.NewSSEServer(p, port)
+		var sseServer *server.SSEServer
+		if cfg.DebugSSE {
+			logger := mcpserver.NewSSEDebugLogger(cfg.DebugSSE)
+			sseServer = mcpserver.NewSSEServerWithLogger(p, cfg.Port, logger)
+		} else {
+			sseServer = mcpserver.NewSSEServer(p, cfg.Port)
+		}
 		log.Printf("clangd-mcp: starting MCP SSE server on %s", addr)
 		err := sseServer.Start(addr)
 		if err == nil {
 			return
 		}
 		if i < maxRetries-1 {
-			log.Printf("clangd-mcp: port %d busy, retry %d/%d: %v", port, i+1, maxRetries, err)
+			log.Printf("clangd-mcp: port %d busy, retry %d/%d: %v", cfg.Port, i+1, maxRetries, err)
 			time.Sleep(retryDelay)
 		} else {
 			log.Printf("clangd-mcp: MCP server failed after %d retries: %v", maxRetries, err)

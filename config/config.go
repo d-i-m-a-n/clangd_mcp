@@ -12,20 +12,23 @@ import (
 const (
 	DefaultPort = 7878
 
-	EnvClangdPath = "CLANGD_MCP_CLANGD_PATH"
-	EnvPort       = "CLANGD_MCP_PORT"
+	EnvClangdPath    = "CLANGD_MCP_CLANGD_PATH"
+	EnvPort          = "CLANGD_MCP_PORT"
+	EnvDebugSSE      = "CLANGD_MCP_DEBUG_SSE"
 )
 
 // Config holds the resolved application configuration.
 type Config struct {
 	ClangdPath string // absolute path to clangd binary
 	Port       int    // MCP server port
+	DebugSSE   bool   // verbose SSE request/response logging
 }
 
 // fileConfig mirrors the JSON config file structure.
 type fileConfig struct {
 	ClangdPath string `json:"clangd_path,omitempty"`
 	Port       int    `json:"port,omitempty"`
+	DebugSSE   bool   `json:"debug_sse,omitempty"`
 }
 
 // Load resolves configuration with priority: env > config file > defaults.
@@ -34,6 +37,7 @@ func Load() Config {
 	return Config{
 		ClangdPath: resolveClangdPath(fc.ClangdPath),
 		Port:       resolvePort(fc.Port),
+		DebugSSE:   resolveDebugSSE(fc.DebugSSE),
 	}
 }
 
@@ -85,4 +89,12 @@ func resolvePort(fromFile int) int {
 		return fromFile
 	}
 	return DefaultPort
+}
+
+// resolveDebugSSE: env > config file > default (false).
+func resolveDebugSSE(fromFile bool) bool {
+	if v := os.Getenv(EnvDebugSSE); v != "" {
+		return v == "1" || v == "true" || v == "yes"
+	}
+	return fromFile
 }
