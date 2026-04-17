@@ -79,15 +79,20 @@ type Proxy struct {
 
 	// stdout serialization (proxy writes IDE responses on stdout)
 	outMu sync.Mutex
+
+	// Documents currently open in clangd (opened by IDE)
+	openDocsMu sync.RWMutex
+	openDocs   map[string]bool
 }
 
 // New creates a new Proxy instance.
 func New(cfg Config) *Proxy {
 	return &Proxy{
-		cfg:     cfg,
-		logger:  cfg.SSELogger,
-		pending: make(map[string]*pendingEntry),
-		capsCh:  make(chan struct{}),
+		cfg:      cfg,
+		logger:   cfg.SSELogger,
+		pending:  make(map[string]*pendingEntry),
+		capsCh:   make(chan struct{}),
+		openDocs: make(map[string]bool),
 	}
 }
 
@@ -126,6 +131,20 @@ func (p *Proxy) handleFromIDE(msg *lsp.Message) error {
 		return p.writeLSPRaw(msg)
 
 	case msg.IsNotification():
+		switch msg.Method {
+		case "textDocument/didOpen":
+			if uri := extractDocURI(msg.Params); uri != "" {
+				p.openDocsMu.Lock()
+				p.openDocs[uri] = true
+				p.openDocsMu.Unlock()
+			}
+		case "textDocument/didClose":
+			if uri := extractDocURI(msg.Params); uri != "" {
+				p.openDocsMu.Lock()
+				delete(p.openDocs, uri)
+				p.openDocsMu.Unlock()
+			}
+		}
 		return p.writeLSPRaw(msg)
 
 	case msg.IsRequest():
@@ -329,4 +348,22 @@ func (p *Proxy) Wait() error { return p.cmd.Wait() }
 func jsonString(s string) json.RawMessage {
 	b, _ := json.Marshal(s)
 	return b
+}
+
+// extractDocURI pulls the textDocument.uri field out of didOpen/didClose params.
+func extractDocURI(params json.RawMessage) string {
+	var p struct {
+		TextDocument struct {
+			URI string `json:"uri"`
+		} `json:"textDocument"`
+	}
+	json.Unmarshal(params, &p)
+	return p.TextDocument.URI
+}
+
+// IsDocumentOpen reports whether the given URI is currently open in clangd (via IDE).
+func (p *Proxy) IsDocumentOpen(uri string) bool {
+	p.openDocsMu.RLock()
+	defer p.openDocsMu.RUnlock()
+	return p.openDocs[uri]
 }

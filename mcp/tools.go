@@ -39,6 +39,7 @@ import (
 type LSPClient interface {
 	SendRequest(method string, params json.RawMessage) (json.RawMessage, error)
 	SendNotification(method string, params json.RawMessage) error
+	IsDocumentOpen(uri string) bool
 	Workspace() string
 }
 
@@ -515,117 +516,127 @@ func workspaceSymbolTool(p LSPClient, query string) (string, error) {
 }
 
 func textDocumentReferencesTool(p LSPClient, filePath string, line, col int) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-		"position":     map[string]int{"line": line - 1, "character": col - 1},
-		"context":      map[string]bool{"includeDeclaration": true},
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+			"position":     map[string]int{"line": line - 1, "character": col - 1},
+			"context":      map[string]bool{"includeDeclaration": true},
+		})
+		raw, err := p.SendRequest("textDocument/references", params)
+		if err != nil {
+			return "", err
+		}
+		locs, err := parseLocations(raw)
+		if err != nil {
+			return "", err
+		}
+		return formatLocations(p.Workspace(), locs), nil
 	})
-	raw, err := p.SendRequest("textDocument/references", params)
-	if err != nil {
-		return "", err
-	}
-	locs, err := parseLocations(raw)
-	if err != nil {
-		return "", err
-	}
-	return formatLocations(p.Workspace(), locs), nil
 }
 
 func textDocumentRenameTool(p LSPClient, filePath string, line, col int, newName string) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-		"position":     map[string]int{"line": line - 1, "character": col - 1},
-		"newName":      newName,
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+			"position":     map[string]int{"line": line - 1, "character": col - 1},
+			"newName":      newName,
+		})
+		raw, err := p.SendRequest("textDocument/rename", params)
+		if err != nil {
+			return "", err
+		}
+		if raw == nil || string(raw) == "null" {
+			return "No rename edits returned (symbol may not be renameable at this position).", nil
+		}
+
+		edits, err := parseWorkspaceEdit(raw)
+		if err != nil {
+			return "", fmt.Errorf("parse WorkspaceEdit: %w", err)
+		}
+		if len(edits) == 0 {
+			return "No edits to apply.", nil
+		}
+
+		return applyWorkspaceEdits(edits)
 	})
-	raw, err := p.SendRequest("textDocument/rename", params)
-	if err != nil {
-		return "", err
-	}
-	if raw == nil || string(raw) == "null" {
-		return "No rename edits returned (symbol may not be renameable at this position).", nil
-	}
-
-	edits, err := parseWorkspaceEdit(raw)
-	if err != nil {
-		return "", fmt.Errorf("parse WorkspaceEdit: %w", err)
-	}
-	if len(edits) == 0 {
-		return "No edits to apply.", nil
-	}
-
-	return applyWorkspaceEdits(edits)
 }
 
 func textDocumentHoverTool(p LSPClient, filePath string, line, col int) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-		"position":     map[string]int{"line": line - 1, "character": col - 1},
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+			"position":     map[string]int{"line": line - 1, "character": col - 1},
+		})
+		raw, err := p.SendRequest("textDocument/hover", params)
+		if err != nil {
+			return "", err
+		}
+		if raw == nil || string(raw) == "null" {
+			return "No hover information available at this position.", nil
+		}
+		var hover lsp.Hover
+		if err := json.Unmarshal(raw, &hover); err != nil {
+			return "", fmt.Errorf("hover parse: %w", err)
+		}
+		return extractHoverText(hover.Contents), nil
 	})
-	raw, err := p.SendRequest("textDocument/hover", params)
-	if err != nil {
-		return "", err
-	}
-	if raw == nil || string(raw) == "null" {
-		return "No hover information available at this position.", nil
-	}
-	var hover lsp.Hover
-	if err := json.Unmarshal(raw, &hover); err != nil {
-		return "", fmt.Errorf("hover parse: %w", err)
-	}
-	return extractHoverText(hover.Contents), nil
 }
 
 func textDocumentLocationTool(p LSPClient, method, label, filePath string, line, col int) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-		"position":     map[string]int{"line": line - 1, "character": col - 1},
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+			"position":     map[string]int{"line": line - 1, "character": col - 1},
+		})
+		raw, err := p.SendRequest(method, params)
+		if err != nil {
+			return "", err
+		}
+		locs, err := parseLocationsOrLinks(raw)
+		if err != nil {
+			return "", err
+		}
+		return formatLocationList(p.Workspace(), locs, label), nil
 	})
-	raw, err := p.SendRequest(method, params)
-	if err != nil {
-		return "", err
-	}
-	locs, err := parseLocationsOrLinks(raw)
-	if err != nil {
-		return "", err
-	}
-	return formatLocationList(p.Workspace(), locs, label), nil
 }
 
 func textDocumentPrepareCallHierarchyTool(p LSPClient, filePath string, line, col int) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-		"position":     map[string]int{"line": line - 1, "character": col - 1},
-	})
-	raw, err := p.SendRequest("textDocument/prepareCallHierarchy", params)
-	if err != nil {
-		return "", err
-	}
-	if raw == nil || string(raw) == "null" {
-		return "No call hierarchy items at this position.", nil
-	}
-	var items []lsp.CallHierarchyItem
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return "", fmt.Errorf("prepareCallHierarchy parse: %w", err)
-	}
-	if len(items) == 0 {
-		return "No call hierarchy items at this position.", nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Call hierarchy items (%d):\n", len(items))
-	for i, item := range items {
-		rel := relativePath(p.Workspace(), uriToPath(item.URI))
-		fmt.Fprintf(&sb, "  [%d] [%s] %s  %s:%d:%d\n",
-			i, symbolKindName(item.Kind), item.Name,
-			rel, item.SelectionRange.Start.Line+1, item.SelectionRange.Start.Character+1,
-		)
-		if item.Detail != "" {
-			fmt.Fprintf(&sb, "      detail: %s\n", item.Detail)
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+			"position":     map[string]int{"line": line - 1, "character": col - 1},
+		})
+		raw, err := p.SendRequest("textDocument/prepareCallHierarchy", params)
+		if err != nil {
+			return "", err
 		}
-		itemJSON, _ := json.Marshal(item)
-		fmt.Fprintf(&sb, "      json: %s\n", itemJSON)
-	}
-	return sb.String(), nil
+		if raw == nil || string(raw) == "null" {
+			return "No call hierarchy items at this position.", nil
+		}
+		var items []lsp.CallHierarchyItem
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return "", fmt.Errorf("prepareCallHierarchy parse: %w", err)
+		}
+		if len(items) == 0 {
+			return "No call hierarchy items at this position.", nil
+		}
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Call hierarchy items (%d):\n", len(items))
+		for i, item := range items {
+			rel := relativePath(p.Workspace(), uriToPath(item.URI))
+			fmt.Fprintf(&sb, "  [%d] [%s] %s  %s:%d:%d\n",
+				i, symbolKindName(item.Kind), item.Name,
+				rel, item.SelectionRange.Start.Line+1, item.SelectionRange.Start.Character+1,
+			)
+			if item.Detail != "" {
+				fmt.Fprintf(&sb, "      detail: %s\n", item.Detail)
+			}
+			itemJSON, _ := json.Marshal(item)
+			fmt.Fprintf(&sb, "      json: %s\n", itemJSON)
+		}
+		return sb.String(), nil
+	})
 }
 
 func callHierarchyIncomingCallsTool(p LSPClient, itemJSON string) (string, error) {
@@ -693,45 +704,47 @@ func callHierarchyOutgoingCallsTool(p LSPClient, itemJSON string) (string, error
 }
 
 func textDocumentDocumentSymbolTool(p LSPClient, filePath string) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-	})
-	raw, err := p.SendRequest("textDocument/documentSymbol", params)
-	if err != nil {
-		return "", err
-	}
-	if raw == nil || string(raw) == "null" {
-		return "No symbols found.", nil
-	}
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+		})
+		raw, err := p.SendRequest("textDocument/documentSymbol", params)
+		if err != nil {
+			return "", err
+		}
+		if raw == nil || string(raw) == "null" {
+			return "No symbols found.", nil
+		}
 
-	rel := relativePath(p.Workspace(), filePath)
+		rel := relativePath(p.Workspace(), filePath)
 
-	// Distinguish DocumentSymbol[] (has "selectionRange") from SymbolInformation[] (has "location").
-	if isDocumentSymbolArray(raw) {
-		var docSyms []lsp.DocumentSymbol
-		if err := json.Unmarshal(raw, &docSyms); err != nil {
+		// Distinguish DocumentSymbol[] (has "selectionRange") from SymbolInformation[] (has "location").
+		if isDocumentSymbolArray(raw) {
+			var docSyms []lsp.DocumentSymbol
+			if err := json.Unmarshal(raw, &docSyms); err != nil {
+				return "", fmt.Errorf("documentSymbol parse: %w", err)
+			}
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "Document symbols in %s (%d):\n", rel, len(docSyms))
+			printDocumentSymbols(docSyms, "", &sb)
+			return sb.String(), nil
+		}
+
+		// Fall back to flat SymbolInformation[].
+		symbols, err := parseSymbols(raw)
+		if err != nil {
 			return "", fmt.Errorf("documentSymbol parse: %w", err)
 		}
 		var sb strings.Builder
-		fmt.Fprintf(&sb, "Document symbols in %s (%d):\n", rel, len(docSyms))
-		printDocumentSymbols(docSyms, "", &sb)
+		fmt.Fprintf(&sb, "Document symbols in %s (%d):\n", rel, len(symbols))
+		for _, sym := range symbols {
+			fmt.Fprintf(&sb, "  [%s] %s  %d:%d\n",
+				symbolKindName(sym.Kind), sym.Name,
+				sym.Location.Range.Start.Line+1, sym.Location.Range.Start.Character+1,
+			)
+		}
 		return sb.String(), nil
-	}
-
-	// Fall back to flat SymbolInformation[].
-	symbols, err := parseSymbols(raw)
-	if err != nil {
-		return "", fmt.Errorf("documentSymbol parse: %w", err)
-	}
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Document symbols in %s (%d):\n", rel, len(symbols))
-	for _, sym := range symbols {
-		fmt.Fprintf(&sb, "  [%s] %s  %d:%d\n",
-			symbolKindName(sym.Kind), sym.Name,
-			sym.Location.Range.Start.Line+1, sym.Location.Range.Start.Character+1,
-		)
-	}
-	return sb.String(), nil
+	})
 }
 
 func workspaceSymbolResolveTool(p LSPClient, symbolJSON string) (string, error) {
@@ -752,40 +765,42 @@ func workspaceSymbolResolveTool(p LSPClient, symbolJSON string) (string, error) 
 }
 
 func textDocumentPrepareTypeHierarchyTool(p LSPClient, filePath string, line, col int) (string, error) {
-	params, _ := json.Marshal(map[string]interface{}{
-		"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
-		"position":     map[string]int{"line": line - 1, "character": col - 1},
-	})
-	raw, err := p.SendRequest("textDocument/prepareTypeHierarchy", params)
-	if err != nil {
-		return "", err
-	}
-	if raw == nil || string(raw) == "null" {
-		return "No type hierarchy items at this position.", nil
-	}
-	var items []lsp.TypeHierarchyItem
-	if err := json.Unmarshal(raw, &items); err != nil {
-		return "", fmt.Errorf("prepareTypeHierarchy parse: %w", err)
-	}
-	if len(items) == 0 {
-		return "No type hierarchy items at this position.", nil
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "Type hierarchy items (%d):\n", len(items))
-	for i, item := range items {
-		rel := relativePath(p.Workspace(), uriToPath(item.URI))
-		fmt.Fprintf(&sb, "  [%d] [%s] %s  %s:%d:%d\n",
-			i, symbolKindName(item.Kind), item.Name,
-			rel, item.SelectionRange.Start.Line+1, item.SelectionRange.Start.Character+1,
-		)
-		if item.Detail != "" {
-			fmt.Fprintf(&sb, "      detail: %s\n", item.Detail)
+	return withDocument(p, filePath, func() (string, error) {
+		params, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{"uri": pathToURI(filePath)},
+			"position":     map[string]int{"line": line - 1, "character": col - 1},
+		})
+		raw, err := p.SendRequest("textDocument/prepareTypeHierarchy", params)
+		if err != nil {
+			return "", err
 		}
-		itemJSON, _ := json.Marshal(item)
-		fmt.Fprintf(&sb, "      json: %s\n", itemJSON)
-	}
-	return sb.String(), nil
+		if raw == nil || string(raw) == "null" {
+			return "No type hierarchy items at this position.", nil
+		}
+		var items []lsp.TypeHierarchyItem
+		if err := json.Unmarshal(raw, &items); err != nil {
+			return "", fmt.Errorf("prepareTypeHierarchy parse: %w", err)
+		}
+		if len(items) == 0 {
+			return "No type hierarchy items at this position.", nil
+		}
+
+		var sb strings.Builder
+		fmt.Fprintf(&sb, "Type hierarchy items (%d):\n", len(items))
+		for i, item := range items {
+			rel := relativePath(p.Workspace(), uriToPath(item.URI))
+			fmt.Fprintf(&sb, "  [%d] [%s] %s  %s:%d:%d\n",
+				i, symbolKindName(item.Kind), item.Name,
+				rel, item.SelectionRange.Start.Line+1, item.SelectionRange.Start.Character+1,
+			)
+			if item.Detail != "" {
+				fmt.Fprintf(&sb, "      detail: %s\n", item.Detail)
+			}
+			itemJSON, _ := json.Marshal(item)
+			fmt.Fprintf(&sb, "      json: %s\n", itemJSON)
+		}
+		return sb.String(), nil
+	})
 }
 
 func typeHierarchySupertypesTool(p LSPClient, itemJSON string) (string, error) {
@@ -1147,6 +1162,49 @@ func symbolKindName(kind int) string {
 		return n
 	}
 	return "Symbol"
+}
+
+// ─── Document open/close helpers ─────────────────────────────────────────────
+
+// withDocument sends textDocument/didOpen before fn and didClose after,
+// but only when the file is not already tracked as open by the IDE.
+func withDocument(p LSPClient, filePath string, fn func() (string, error)) (string, error) {
+	uri := pathToURI(filePath)
+	if !p.IsDocumentOpen(uri) {
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", fmt.Errorf("open %s: %w", filePath, err)
+		}
+		openParams, _ := json.Marshal(map[string]interface{}{
+			"textDocument": map[string]interface{}{
+				"uri":        uri,
+				"languageId": languageID(filePath),
+				"version":    1,
+				"text":       string(content),
+			},
+		})
+		p.SendNotification("textDocument/didOpen", openParams)
+		defer func() {
+			closeParams, _ := json.Marshal(map[string]interface{}{
+				"textDocument": map[string]interface{}{"uri": uri},
+			})
+			p.SendNotification("textDocument/didClose", closeParams)
+		}()
+	}
+	return fn()
+}
+
+func languageID(filePath string) string {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".c":
+		return "c"
+	case ".m":
+		return "objective-c"
+	case ".mm":
+		return "objective-cpp"
+	default:
+		return "cpp"
+	}
 }
 
 // ─── URI / path helpers ───────────────────────────────────────────────────────
